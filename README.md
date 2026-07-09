@@ -9,4 +9,4 @@ It is not a full pattern matching library.
 ## Install
 
 ```bash
-go get github.com/<your-github-username>/go-when
+go get github.com/D4r3E-1v1l/go-when
