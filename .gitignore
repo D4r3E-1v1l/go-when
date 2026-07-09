@@ -1,0 +1,7 @@
+# Editor config
+.vscode/
+.idea/
+.DS_Store
+
+# Build Dir
+build/
