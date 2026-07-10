@@ -1,26 +1,26 @@
 # go-when
 
-[中文文档](./README.zh-CN.md)
+[English README](./README.md)
 
-`go-when` is a typed decision matcher for Go.
+`go-when` 是一个面向 Go 的 typed decision matcher。
 
-It is designed for practical value mapping, error mapping, range classification, and action dispatch in Go services.
+它主要用于 Go 服务端业务代码里的值映射、错误映射、区间分类和 action dispatch。
 
-It is not a full pattern matching library, and it does not try to replace Go's `if` or `switch`.
+它不是完整 pattern matching 库，也不是为了替代 Go 的 `if` 或 `switch`。
 
-## Install
+## 安装
 
 ```bash
 go get github.com/D4r3E-1v1l/go-when
 ```
 
-## Requirements
+## 要求
 
-Go 1.18 or later.
+Go 1.18 或更高版本。
 
-`go-when` uses Go generics.
+`go-when` 使用了 Go generics。
 
-## Quick Example
+## 快速示例
 
 ```go
 result := when.MatchAs[string](code).
@@ -29,9 +29,9 @@ result := when.MatchAs[string](code).
     Else("unknown")
 ```
 
-## Why
+## 为什么需要 go-when
 
-Go's `if` and `switch` are simple and powerful, but service-side business code often contains repeated decision mapping patterns:
+Go 的 `if` 和 `switch` 很简单、很强大，但服务端业务代码里经常出现重复的 decision mapping：
 
 * status code -> response
 * enum/state -> action
@@ -40,11 +40,11 @@ Go's `if` and `switch` are simple and powerful, but service-side business code o
 * operation -> handler
 * operation -> handler, error
 
-`go-when` focuses on these practical mapping cases.
+`go-when` 专注于这些实际业务映射场景。
 
 ## MatchAs
 
-Use `MatchAs` for comparable values.
+`MatchAs` 用于 comparable value。
 
 ```go
 action := when.MatchAs[Action](phase).
@@ -56,7 +56,7 @@ action := when.MatchAs[Action](phase).
 
 ## Range
 
-Use `Range` for numeric classification.
+`Range` 用于数值区间分类。
 
 ```go
 level := when.MatchAs[string](score).
@@ -68,7 +68,7 @@ level := when.MatchAs[string](score).
 
 ## Error Mapping
 
-Use `Err` to map errors to values.
+`Err` 用于把 error 映射成业务值。
 
 ```go
 resp := when.Err[HTTPResp](err).
@@ -80,7 +80,7 @@ resp := when.Err[HTTPResp](err).
 
 ## Fallible Matcher
 
-Use `WithErr()` when the matcher should return `(R, error)`.
+如果 matcher 需要返回 `(R, error)`，使用 `WithErr()`。
 
 ```go
 handler, err := when.MatchAs[Handler](op).
@@ -90,39 +90,39 @@ handler, err := when.MatchAs[Handler](op).
     ElseErr(nil, ErrUnsupportedOperation)
 ```
 
-## Explicit Terminals
+## 显式 Terminal
 
-Every completed matcher chain must end with a terminal method:
+每条完整 matcher chain 都必须以 terminal method 结束：
 
 * `Else(...)`
 * `ElseDo(...)`
 * `Exhaustive()`
 
-Use `Else` or `ElseDo` when fallback behavior is expected.
+如果你希望提供 fallback，使用 `Else` 或 `ElseDo`。
 
-Use `Exhaustive` when all valid cases are expected to be covered.
+如果你认为所有合法 case 都已经覆盖，使用 `Exhaustive`。
 
-## GoLand Plugin
+## GoLand 插件
 
-A companion GoLand plugin is available:
+配套 GoLand 插件：
 
 ```text
 https://github.com/D4r3E-1v1l/go-when-goland-plugin
 ```
 
-The plugin adds inspections for:
+插件支持检查：
 
-* missing terminal methods
-* incomplete matcher branches
-* invalid conditions/actions/terminals
-* duplicate terminals
+* 缺少 terminal method
+* 不完整 matcher branch
+* matcher type 不支持的 condition/action/terminal
+* 重复 terminal
 * numeric condition overlap
-* unreachable numeric conditions
-* enum exhaustive warnings
+* unreachable numeric condition
+* enum exhaustive warning
 
-## Documentation
+## 文档
 
-See [`docs/`](./docs).
+更多内容见 [`docs/`](./docs)。
 
 ## License
 
