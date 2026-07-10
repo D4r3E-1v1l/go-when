@@ -1,12 +1,15 @@
 # go-when
 
+![Minimum Go Version](https://img.shields.io/badge/min%20go-1.22-blue)
+[![LICENSE](https://img.shields.io/github/license/D4r3E-1v1l/go-when.svg)](https://github.com/D4r3E-1v1l/go-when/blob/main/LICENSE)
+
 [English README](./README.md)
 
-`go-when` 是一个面向 Go 的 typed decision matcher。
+`go-when` 是一个面向 Go 的 typed decision-table helper。
 
-它主要用于 Go 服务端业务代码里的值映射、错误映射、区间分类和 action dispatch。
+它适合扁平、结果导向的决策映射，例如 value mapping、handler dispatch、fallible decision、error mapping、numeric range classification 和 mixed condition matching。
 
-它不是完整 pattern matching 库，也不是为了替代 Go 的 `if` 或 `switch`。
+它不是为了替代 Go 的 `if` 或 `switch`，也不是完整 pattern matching 库。
 
 ## 安装
 
@@ -16,91 +19,159 @@ go get github.com/D4r3E-1v1l/go-when
 
 ## 要求
 
-Go 1.18 或更高版本。
-
-`go-when` 使用了 Go generics。
+Go 1.22 或更高版本。
 
 ## 快速示例
 
 ```go
-result := when.MatchAs[string](code).
-    Case(200).Then("ok").
-    Case(404).Then("not_found").
-    Else("unknown")
+label := when.MatchAs[string](status).
+	Case("pending").Then("Waiting for payment").
+	Case("paid").Then("Payment received").
+	Case("shipped").Then("On the way").
+	Else("Unknown status")
 ```
 
 ## 为什么需要 go-when
 
-Go 的 `if` 和 `switch` 很简单、很强大，但服务端业务代码里经常出现重复的 decision mapping：
+Go 的 `if` 和 `switch` 很清晰，也很强大。
 
-* status code -> response
-* enum/state -> action
-* error -> HTTP/gRPC response
-* numeric range -> level
-* operation -> handler
-* operation -> handler, error
+`go-when` 适合这种扁平、类型明确、结果导向的决策映射：
 
-`go-when` 专注于这些实际业务映射场景。
+- value -> value
+- value -> handler
+- value -> `(value, error)`
+- error -> value 或 handler
+- numeric range -> category
+- 混合 `Case` / `Range` / `When` / `Pattern` 条件
 
-## MatchAs
+对于流程型、多步骤、控制流较重，或者分支里需要 `return`、`break`、`continue` 的代码，优先使用原生 `if` 或 `switch`。
 
-`MatchAs` 用于 comparable value。
+## 混合条件匹配
+
+`go-when` 的主要目标之一，是让不同类型的条件可以放在同一条 typed decision chain 里。
 
 ```go
-action := when.MatchAs[Action](phase).
-    Case(Pending).Then(Create).
-    Case(Running).Then(Sync).
-    Case(Failed).Then(Cleanup).
-    Else(Noop)
+grade := when.MatchAs[string](score).
+	Case(100).Then("perfect").
+	Range(when.Range(90, 100)).Then("excellent").
+	Range(when.Range(60, 90)).Then("passed").
+	When(isRetakeAllowed).Then("retake_allowed").
+	Else("failed")
 ```
 
-## Range
+```go
+func isRetakeAllowed(score int) bool {
+	return score >= 50 && score < 60
+}
+```
 
-`Range` 用于数值区间分类。
+匹配规则是 first match wins。更具体的条件应该放在更宽泛的条件前面。
+
+## Value to Handler
+
+`go-when` 可以把状态或命令映射成 handler。
 
 ```go
-level := when.MatchAs[string](score).
-    Range(when.Range(0, 60)).Then("low").
-    Range(when.Range(60, 90)).Then("medium").
-    Range(when.From(90)).Then("high").
-    Else("unknown")
+type Handler func()
+
+handler := when.MatchAs[Handler](state).
+	Case(OrderCreated).Then(requestPayment).
+	Case(OrderPaid).Then(packOrder).
+	Case(OrderPacked).Then(shipOrder).
+	Case(OrderShipped).Then(sendTracking).
+	Case(OrderCancelled).Then(cancelOrder).
+	Exhaustive()
+
+handler()
+```
+
+matcher 只表达决策：
+
+```text
+state -> handler
+```
+
+真正执行动作仍然显式：
+
+```go
+handler()
 ```
 
 ## Error Mapping
 
-`Err` 用于把 error 映射成业务值。
+使用 `Err` 可以把 error 映射成 value 或 handler。
 
 ```go
-resp := when.Err[HTTPResp](err).
-    Is(ErrNotFound).Then(notFoundResp).
-    Is(ErrPermissionDenied).Then(forbiddenResp).
-    Contains("timeout").Then(timeoutResp).
-    Else(internalResp)
+handler := when.Err[ErrorHandler](err).
+	Nil().Then(success).
+	Is(ErrUserNotFound).Then(notFound).
+	Is(ErrInvalidInput).Then(badRequest).
+	Is(ErrNotAuthorized).Then(unauthorized).
+	Else(internalError)
+
+result := handler(err)
 ```
 
-## Fallible Matcher
+## Fallible Decisions
 
-如果 matcher 需要返回 `(R, error)`，使用 `WithErr()`。
+当决策需要返回 `(R, error)` 时，使用 `WithErr()`。
 
 ```go
-handler, err := when.MatchAs[Handler](op).
-    WithErr().
-    Case(Create, Update).Then(writeHandler).
-    Case(Delete).Then(deleteHandler).
-    ElseErr(nil, ErrUnsupportedOperation)
+handler, err := when.MatchAs[Handler](command).
+	WithErr().
+	Case(AddTodo).Then(addTodo).
+	Case(DeleteTodo).Then(deleteTodo).
+	Case(ExportTodo).ThenErr(nil, ErrExportDisabled).
+	ElseErr(nil, ErrUnsupportedCommand)
 ```
+
+这保持了 Go 原生错误风格：
+
+```go
+value, err := ...
+```
+
+`go-when` 不引入自定义 `Result[T, E]` 类型。
 
 ## 显式 Terminal
 
-每条完整 matcher chain 都必须以 terminal method 结束：
+每条完整 matcher chain 都必须以 terminal method 结束。
 
-* `Else(...)`
-* `ElseDo(...)`
-* `Exhaustive()`
+使用 `Else` 表示接受 fallback：
 
-如果你希望提供 fallback，使用 `Else` 或 `ElseDo`。
+```go
+label := when.MatchAs[string](status).
+	Case("paid").Then("Payment received").
+	Else("Unknown status")
+```
 
-如果你认为所有合法 case 都已经覆盖，使用 `Exhaustive`。
+使用 `Exhaustive` 表示你认为所有合法 case 都已经覆盖：
+
+```go
+action := when.MatchAs[Action](state).
+	Case(OrderCreated).Then(RequestPayment).
+	Case(OrderPaid).Then(PackOrder).
+	Case(OrderCancelled).Then(Noop).
+	Exhaustive()
+```
+
+## Examples
+
+可运行 examples 在 [`examples/`](./examples)。
+
+```bash
+go run ./examples/01_status_label
+go run ./examples/02_order_state_handler
+go run ./examples/03_score_grade
+go run ./examples/04_error_to_result_handler
+go run ./examples/05_command_dispatch_with_error
+go run ./examples/06_signup_decision
+go run ./examples/07_custom_pattern
+```
+
+## 文档
+
+见 [`docs/`](./docs)。
 
 ## GoLand 插件
 
@@ -110,19 +181,9 @@ handler, err := when.MatchAs[Handler](op).
 https://github.com/D4r3E-1v1l/go-when-goland-plugin
 ```
 
-插件支持检查：
+插件会提供 matcher chain 结构检查和部分语义检查，例如 missing terminal、numeric overlap、unreachable numeric condition、enum exhaustive warning。
 
-* 缺少 terminal method
-* 不完整 matcher branch
-* matcher type 不支持的 condition/action/terminal
-* 重复 terminal
-* numeric condition overlap
-* unreachable numeric condition
-* enum exhaustive warning
-
-## 文档
-
-更多内容见 [`docs/`](./docs)。
+这个库不依赖插件也可以使用。
 
 ## License
 

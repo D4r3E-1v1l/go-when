@@ -1,12 +1,15 @@
 # go-when
 
+![Minimum Go Version](https://img.shields.io/badge/min%20go-1.22-blue)
+[![LICENSE](https://img.shields.io/github/license/D4r3E-1v1l/go-when.svg)](https://github.com/D4r3E-1v1l/go-when/blob/main/LICENSE)
+
 [中文文档](./README.zh-CN.md)
 
-`go-when` is a typed decision matcher for Go.
+`go-when` is a typed decision-table helper for Go.
 
-It is designed for practical value mapping, error mapping, range classification, and action dispatch in Go services.
+It is designed for flat, result-oriented decision mappings, such as value mapping, handler dispatch, fallible decisions, error mapping, numeric range classification, and mixed condition matching.
 
-It is not a full pattern matching library, and it does not try to replace Go's `if` or `switch`.
+It is not a replacement for Go's `if` or `switch`, and it is not a full pattern matching library.
 
 ## Install
 
@@ -16,91 +19,168 @@ go get github.com/D4r3E-1v1l/go-when
 
 ## Requirements
 
-Go 1.18 or later.
-
-`go-when` uses Go generics.
+Go 1.22 or later.
 
 ## Quick Example
 
 ```go
-result := when.MatchAs[string](code).
-    Case(200).Then("ok").
-    Case(404).Then("not_found").
-    Else("unknown")
+label := when.MatchAs[string](status).
+	Case("pending").Then("Waiting for payment").
+	Case("paid").Then("Payment received").
+	Case("shipped").Then("On the way").
+	Else("Unknown status")
 ```
 
 ## Why
 
-Go's `if` and `switch` are simple and powerful, but service-side business code often contains repeated decision mapping patterns:
+Go's `if` and `switch` are clear and powerful.
 
-* status code -> response
-* enum/state -> action
-* error -> HTTP/gRPC response
-* numeric range -> level
-* operation -> handler
-* operation -> handler, error
+`go-when` is useful when a decision is flat, typed, and result-oriented:
 
-`go-when` focuses on these practical mapping cases.
+- value -> value
+- value -> handler
+- value -> `(value, error)`
+- error -> value or handler
+- numeric range -> category
+- mixed `Case` / `Range` / `When` / `Pattern` conditions
 
-## MatchAs
+Prefer native `if` or `switch` for procedural logic, multi-step branches, complex control flow, or branches that need `return`, `break`, or `continue`.
 
-Use `MatchAs` for comparable values.
+## Mixed Condition Matching
+
+One of the main goals of `go-when` is to let different condition types live in one typed decision chain.
 
 ```go
-action := when.MatchAs[Action](phase).
-    Case(Pending).Then(Create).
-    Case(Running).Then(Sync).
-    Case(Failed).Then(Cleanup).
-    Else(Noop)
+grade := when.MatchAs[string](score).
+	Case(100).Then("perfect").
+	Range(when.Range(90, 100)).Then("excellent").
+	Range(when.Range(60, 90)).Then("passed").
+	When(isRetakeAllowed).Then("retake_allowed").
+	Else("failed")
 ```
 
-## Range
+```go
+func isRetakeAllowed(score int) bool {
+	return score >= 50 && score < 60
+}
+```
 
-Use `Range` for numeric classification.
+The first matched condition wins. Put more specific conditions before broader conditions.
+
+## Value to Handler
+
+`go-when` can be used to map a state or command to a handler.
 
 ```go
-level := when.MatchAs[string](score).
-    Range(when.Range(0, 60)).Then("low").
-    Range(when.Range(60, 90)).Then("medium").
-    Range(when.From(90)).Then("high").
-    Else("unknown")
+type Handler func()
+
+handler := when.MatchAs[Handler](state).
+	Case(OrderCreated).Then(requestPayment).
+	Case(OrderPaid).Then(packOrder).
+	Case(OrderPacked).Then(shipOrder).
+	Case(OrderShipped).Then(sendTracking).
+	Case(OrderCancelled).Then(cancelOrder).
+	Exhaustive()
+
+handler()
+```
+
+This keeps the matcher focused on the decision:
+
+```text
+state -> handler
+```
+
+The actual execution stays explicit:
+
+```go
+handler()
 ```
 
 ## Error Mapping
 
-Use `Err` to map errors to values.
+Use `Err` to map errors to values or handlers.
 
 ```go
-resp := when.Err[HTTPResp](err).
-    Is(ErrNotFound).Then(notFoundResp).
-    Is(ErrPermissionDenied).Then(forbiddenResp).
-    Contains("timeout").Then(timeoutResp).
-    Else(internalResp)
+handler := when.Err[ErrorHandler](err).
+	Nil().Then(success).
+	Is(ErrUserNotFound).Then(notFound).
+	Is(ErrInvalidInput).Then(badRequest).
+	Is(ErrNotAuthorized).Then(unauthorized).
+	Else(internalError)
+
+result := handler(err)
 ```
 
-## Fallible Matcher
+## Fallible Decisions
 
-Use `WithErr()` when the matcher should return `(R, error)`.
+Use `WithErr()` when a decision should return `(R, error)`.
 
 ```go
-handler, err := when.MatchAs[Handler](op).
-    WithErr().
-    Case(Create, Update).Then(writeHandler).
-    Case(Delete).Then(deleteHandler).
-    ElseErr(nil, ErrUnsupportedOperation)
+handler, err := when.MatchAs[Handler](command).
+	WithErr().
+	Case(AddTodo).Then(addTodo).
+	Case(DeleteTodo).Then(deleteTodo).
+	Case(ExportTodo).ThenErr(nil, ErrExportDisabled).
+	ElseErr(nil, ErrUnsupportedCommand)
 ```
+
+This follows Go's native error style:
+
+```go
+value, err := ...
+```
+
+`go-when` does not introduce a custom `Result[T, E]` type.
 
 ## Explicit Terminals
 
-Every completed matcher chain must end with a terminal method:
+Every completed matcher chain must end with a terminal method.
 
-* `Else(...)`
-* `ElseDo(...)`
-* `Exhaustive()`
+Use `Else` when fallback behavior is expected:
 
-Use `Else` or `ElseDo` when fallback behavior is expected.
+```go
+label := when.MatchAs[string](status).
+	Case("paid").Then("Payment received").
+	Else("Unknown status")
+```
 
-Use `Exhaustive` when all valid cases are expected to be covered.
+Use `Exhaustive` when all valid cases are expected to be covered:
+
+```go
+action := when.MatchAs[Action](state).
+	Case(OrderCreated).Then(RequestPayment).
+	Case(OrderPaid).Then(PackOrder).
+	Case(OrderCancelled).Then(Noop).
+	Exhaustive()
+```
+
+## Examples
+
+Runnable examples are available in [`examples/`](./examples).
+
+```bash
+go run ./examples/01_status_label
+go run ./examples/02_order_state_handler
+go run ./examples/03_score_grade
+go run ./examples/04_error_to_result_handler
+go run ./examples/05_command_dispatch_with_error
+go run ./examples/06_signup_decision
+go run ./examples/07_custom_pattern
+```
+
+## Documentation
+
+See [`docs/`](./docs).
+
+Recommended reading:
+
+- [When to use go-when](./docs/when-to-use.md)
+- [API Overview](./docs/api.md)
+- [Mixed Condition Matching](./docs/mixed-condition-matching.md)
+- [Error Mapping](./docs/error-mapping.md)
+- [Fallible Matcher](./docs/fallible-matcher.md)
+- [Limitations](./docs/limitations.md)
 
 ## GoLand Plugin
 
@@ -110,19 +190,9 @@ A companion GoLand plugin is available:
 https://github.com/D4r3E-1v1l/go-when-goland-plugin
 ```
 
-The plugin adds inspections for:
+The plugin adds inspections for matcher-chain structure and selected semantic checks, such as missing terminals, numeric overlap, unreachable numeric conditions, and enum exhaustive warnings.
 
-* missing terminal methods
-* incomplete matcher branches
-* invalid conditions/actions/terminals
-* duplicate terminals
-* numeric condition overlap
-* unreachable numeric conditions
-* enum exhaustive warnings
-
-## Documentation
-
-See [`docs/`](./docs).
+The library works without the plugin.
 
 ## License
 
