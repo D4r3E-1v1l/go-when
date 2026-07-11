@@ -19,7 +19,7 @@ go get github.com/D4r3E-1v1l/go-when
 
 ## 要求
 
-Go 1.22 或更高版本。
+Go 1.18 或更高版本。
 
 ## 快速示例
 

@@ -19,7 +19,7 @@ go get github.com/D4r3E-1v1l/go-when
 
 ## Requirements
 
-Go 1.22 or later.
+Go 1.18 or later.
 
 ## Quick Example
 
