@@ -2,14 +2,32 @@ name: Go Compatibility
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 permissions:
   contents: read
 
 jobs:
   test:
-    name: Go 1.22.x
+    name: Go ${{ matrix.go-version }}
     runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version:
+          - "1.18.x"
+          - "1.19.x"
+          - "1.20.x"
+          - "1.21.x"
+          - "1.22.x"
+          - "1.23.x"
+          - "1.24.x"
+          - "1.25.x"
+          - "stable"
 
     steps:
       - name: Checkout
@@ -18,11 +36,78 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.22.x"
+          go-version: ${{ matrix.go-version }}
           cache: false
 
       - name: Show Go version
         run: go version
 
-      - name: Test
-        run: go test ./...
+      - name: Run tests
+        id: test
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          go test ./... 2>&1 | tee test.log
+
+      - name: Generate compatibility row
+        run: |
+          mkdir -p compatibility
+
+          if [ "${{ steps.test.outcome }}" = "success" ]; then
+            STATUS="✅ Pass"
+          else
+            STATUS="❌ Fail"
+          fi
+
+          echo '| `${{ matrix.go-version }}` | '"$STATUS"' |' > compatibility/row.md
+          cp test.log compatibility/test.log
+
+      - name: Upload compatibility result
+        uses: actions/upload-artifact@v6
+        with:
+          name: compatibility-${{ matrix.go-version }}
+          path: compatibility
+
+      - name: Fail job if tests failed
+        if: steps.test.outcome != 'success'
+        run: exit 1
+
+  summary:
+    name: Compatibility Summary
+    runs-on: ubuntu-24.04
+    needs: test
+    if: always()
+
+    steps:
+      - name: Download compatibility results
+        uses: actions/download-artifact@v8
+        with:
+          path: compatibility-results
+          pattern: compatibility-*
+          merge-multiple: false
+
+      - name: Generate Markdown summary
+        run: |
+          REPORT="go-compatibility.md"
+
+          {
+            echo "# Go Compatibility Report"
+            echo
+            echo "| Go version | Result |"
+            echo "|---|---|"
+            find compatibility-results -name row.md -print0 \
+              | sort -z \
+              | xargs -0 cat
+            echo
+            echo "Minimum supported Go version: **Go 1.18**"
+            echo
+            echo "Generated from workflow run: \`${{ github.run_id }}\`"
+          } > "$REPORT"
+
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Markdown report
+        uses: actions/upload-artifact@v6
+        with:
+          name: go-compatibility-report
+          path: go-compatibility.md
